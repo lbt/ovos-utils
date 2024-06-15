@@ -11,7 +11,8 @@ from os.path import dirname
 from os.path import splitext, join
 
 from watchdog.events import FileSystemEventHandler
-from watchdog.observers import Observer
+#from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver as Observer
 
 from ovos_utils.bracket_expansion import expand_options
 from ovos_utils.log import LOG, log_deprecation
@@ -381,11 +382,23 @@ class FileEventHandler(FileSystemEventHandler):
             self._events = ('created', 'modified')
         self._changed_files = []
         self._lock = RLock()
+        self._fire_on_modified = True
 
     def on_any_event(self, event):
+        # The logic here was to monitor files for changes and when a
+        # file was "closed" then fire the event. This doesn't work for
+        # NFS with the polling observer.
         if event.is_directory:
             return
         with self._lock:
+            if self._fire_on_modified:
+                try:
+                    self._callback(event.src_path)
+                except:
+                    LOG.exception("An error occurred handling file "
+                                  "change event callback")
+                return
+
             if event.event_type == "closed":
                 if event.src_path in self._changed_files:
                     self._changed_files.remove(event.src_path)
